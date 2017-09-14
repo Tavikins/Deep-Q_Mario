@@ -1,11 +1,10 @@
-#NEAT/PEAS Super Mario Gym (OpenAI)
+#Super Mario Gym (OpenAI)
 
 import numpy as np
 import gym
 
 
 env = gym.make('meta-SuperMarioBros-Tiles-v0')
-env.close()
 from random import random, randint, sample
 
 from keras.models import Sequential
@@ -68,11 +67,14 @@ class GymSuperMario(object):
         reward = 0
         score = 0
         state_then = env.reset()
+        if type(state_then) == type(None):
+            state_then = np.zeros((1,1,208))
         state_new = state_then
         while steps < self.max_steps and not done:
             temp_reward = 0
             steps += 3
-            
+            print(state_then)
+            print(state_new)
             state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208))))
             state_now = state_now.reshape((1,1,416))
             self.Q = np.round(model.predict(state_now)[0][0],10)
