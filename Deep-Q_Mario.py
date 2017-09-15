@@ -59,7 +59,7 @@ class GymSuperMario(object):
 
         
     def _loop(self,state_then):
-        steps = 0
+        steps = 1
         self.max_dist = 40
         self.dist = 40
         done = False
