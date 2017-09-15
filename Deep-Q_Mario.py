@@ -41,7 +41,7 @@ model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(128, activation='relu'))
 model.add(Dense(20,  activation='relu'))
-model.compile(loss=_huber_loss, optimizer=Adam(lr=0.0001))
+model.compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
               
 debug = []
 def ui(i):
@@ -61,9 +61,9 @@ class GymSuperMario(object):
         self.dist = 40.0
         self.Q = None
         self.gamma = 0.8
-        self.mb_size = 200
+        self.mb_size = 1000
         self.epsi = 1.0
-        self.epsi_decay = 0.85
+        self.epsi_decay = 0.98
         self.epsi_min = .001
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
@@ -74,6 +74,7 @@ class GymSuperMario(object):
         done = False
         reward = 0
         score = 0
+        self.data = []
         state_new = state_then
         while not done:
             reward = 0
@@ -134,7 +135,7 @@ class GymSuperMario(object):
                     reward += self.gamma ** ii * self.rewards[i+ii]
             targets[i,0,action] = reward
             
-        model.fit(inputs,targets,batch_size=self.mb_size,epochs=5,shuffle=False)
+        model.fit(inputs,targets,batch_size=self.mb_size,epochs=1,shuffle=False)
         #print("Training Done")
         
         
