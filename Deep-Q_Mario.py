@@ -31,7 +31,7 @@ model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(128, activation='relu'))
 model.add(Dense(20,  activation='relu'))
-model.compile(loss=_huber_loss, optimizer=Adam(lr=0.00001))
+model.compile(loss=_huber_loss, optimizer=Adam(lr=0.0001))
               
 debug = []
 def ui(i):
@@ -47,27 +47,26 @@ class GymSuperMario(object):
         self.states = []
         self.rewards = []
         self.data = []
-        self.max_dist = 40
-        self.dist = 40
+        self.max_dist = 40.0
+        self.dist = 40.0
         self.Q = None
         self.gamma = 0.8
         self.mb_size = 200
-        self.epsi = 1
+        self.epsi = 1.0
         self.epsi_decay = 0.99
-        self.epsi_min = .005
+        self.epsi_min = .001
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
         
     def _loop(self,state_then):
         steps = 1
-        self.max_dist = 40
         self.dist = 40
         done = False
         reward = 0
         score = 0
         state_new = state_then
-        while steps < self.max_steps and not done:
-            temp_reward = 0
+        while not done:
+            reward = 0
             steps += 3
             state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208))))
             state_now = state_now.reshape((1,1,416))
@@ -87,19 +86,22 @@ class GymSuperMario(object):
                        
             
             for i in range(3):
-                state_new, reward, done, info = env.step(action)
-                score += reward
-                temp_reward += reward
-                
-            reward = temp_reward/(steps/10) if not done else -20
+                state_new, temp_reward, done, info = env.step(action)
+                score += temp_reward
+                reward += temp_reward
+                if done:
+                    reward = -20
+                    #self._train()
+                    break
             
             self.data.append((state_then,state_new,action_index,reward,done))
             state_then = state_new
             
-            self.dist = info['distance']
+            self.dist = float(info['distance']) if info['distance'] > 0 else self.dist
             if self.dist > self.max_dist:
                 self.max_dist = self.dist
-            self.epsi = (self.dist/self.max_dist)**(-1)
+            #self.epsi = (self.dist/self.max_dist)
+            #print(self.epsi)
             
         print('Score:',score)
         return(score,steps)
@@ -157,9 +159,10 @@ while not completed:
     print('Practice - score: ',score,' Steps: ',step)
     if score >= 3200:
         completed = True
-        o.epsi = 0
+        o.epsi = 0.0
     else:
         o._train()
+        o.epsi *= o.epsi_decay
 score,step = o.evaluate(state_then)
 print('Test - score: ',score,' Steps: ',step)
     
