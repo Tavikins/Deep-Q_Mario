@@ -26,6 +26,16 @@ model.add(Dense(512, activation='relu'))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
+model.add(Dense(256, activation='relu'))
 #model.add(Dropout(.002))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
@@ -53,7 +63,7 @@ class GymSuperMario(object):
         self.gamma = 0.8
         self.mb_size = 200
         self.epsi = 1.0
-        self.epsi_decay = 0.99
+        self.epsi_decay = 0.85
         self.epsi_min = .001
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
@@ -90,7 +100,7 @@ class GymSuperMario(object):
                 score += temp_reward
                 reward += temp_reward
                 if done:
-                    reward = -20
+                    reward = -200
                     #self._train()
                     break
             
