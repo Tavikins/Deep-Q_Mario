@@ -1,14 +1,14 @@
-#Super Mario Gym (OpenAI)
+#Deep-Q-Learning with Super Mario Gym (OpenAI)
 
 import numpy as np
 import gym
 
 
 env = gym.make('meta-SuperMarioBros-Tiles-v0')
-from random import random, randint, sample
+from random import random, randint
 
-from keras.models import Sequential
-from keras.layers import Dense, Dropout
+from keras.models import Sequential, load_model
+from keras.layers import Dense
 from keras.optimizers import Adam
 from keras import backend as K
 
@@ -19,38 +19,52 @@ def _huber_loss(target, prediction):
     return K.mean(K.sqrt(1+K.square(error))-1, axis=-1)
     
 model = Sequential()
-model.add(Dense(416, activation='relu',input_shape=(1,416)))
-model.add(Dense(512, activation='relu'))
-model.add(Dense(512, activation='relu'))
-#model.add(Dropout(.002))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-#model.add(Dropout(.002))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(256, activation='relu'))
-model.add(Dense(128, activation='relu'))
+model.add(Dense(512, activation='relu',input_shape=(1,416)))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(64, activation='relu'))
 model.add(Dense(20,  activation='relu'))
 model.compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
-              
+         
 debug = []
 def ui(i):
     return np.unravel_index(i,(2,2,2,2,2,2))
+def _save_model():
+    print('Saving Model')
+    model.save('./DQMario_model.h5')
 
+def _load_model(model, f):
+    print('Loading Model')
+    m=None
+    try:
+        m = load_model('./DQMario_model.h5',custom_objects={'_huber_loss':_huber_loss})
+        del model
+    except:
+        print('Model not loaded, using default')
+        m = model
+    return m
+    
 class GymSuperMario(object):
     global debug
     def __init__(self, max_steps = 8000, max_score = 2000):
-        debug.append(self)
+        self.mod_save = True
+        self.mod_load = True
         self.max_steps = max_steps
         self.max_score = max_score
         self.actions = []
@@ -60,10 +74,10 @@ class GymSuperMario(object):
         self.max_dist = 40.0
         self.dist = 40.0
         self.Q = None
-        self.gamma = 0.8
+        self.gamma = 0.95
         self.mb_size = 1000
         self.epsi = 1.0
-        self.epsi_decay = 0.98
+        self.epsi_decay = 0.99
         self.epsi_min = .001
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
@@ -101,7 +115,6 @@ class GymSuperMario(object):
                 score += temp_reward
                 reward += temp_reward
                 if done:
-                    reward = -200
                     #self._train()
                     break
             
@@ -134,7 +147,8 @@ class GymSuperMario(object):
                 for ii in range(len(self.rewards)-i):
                     reward += self.gamma ** ii * self.rewards[i+ii]
             targets[i,0,action] = reward
-            
+        
+
         model.fit(inputs,targets,batch_size=self.mb_size,epochs=1,shuffle=False)
         #print("Training Done")
         
@@ -151,10 +165,11 @@ class GymSuperMario(object):
         score, steps = self._loop()
             
         if score < self.max_score:
-            print("Failed... Score: ",score/self.max_score," in ",steps," Steps")
+            print("Failed... Score: ",score," in ",steps," Steps")
             return 0
             
         return int(score > self.max_score)
+        
         
         
     def get_Q(self):
@@ -164,11 +179,15 @@ class GymSuperMario(object):
 
 o = GymSuperMario(max_steps=10000,max_score=3200)
 completed = False
+model = _load_model(model,_huber_loss) if o.mod_load else model
+o.epsi = o.epsi_min if o.mod_load else o.epsi
 state_then = env.reset()
 while not completed:
     score,step = o.evaluate(state_then)
     print('Practice - score: ',score,' Steps: ',step)
-    if score >= 3200:
+    if o.mod_save:
+        _save_model()
+    if score >= 500:
         completed = True
         o.epsi = 0.0
     else:
