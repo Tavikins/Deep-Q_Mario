@@ -31,7 +31,7 @@ model.add(Dense(256, activation='relu'))
 model.add(Dense(256, activation='relu'))
 model.add(Dense(128, activation='relu'))
 model.add(Dense(20,  activation='relu'))
-model.compile(loss=_huber_loss, optimizer=Adam(lr=0.0001))
+model.compile(loss=_huber_loss, optimizer=Adam(lr=0.00001))
               
 debug = []
 def ui(i):
@@ -58,23 +58,17 @@ class GymSuperMario(object):
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
         
-        
-    def _loop(self,test=False):
+    def _loop(self,state_then):
         steps = 0
         self.max_dist = 40
         self.dist = 40
         done = False
         reward = 0
         score = 0
-        state_then = env.reset()
-        if type(state_then) == type(None):
-            state_then = np.zeros((1,1,208))
         state_new = state_then
         while steps < self.max_steps and not done:
             temp_reward = 0
             steps += 3
-            print(state_then)
-            print(state_new)
             state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208))))
             state_now = state_now.reshape((1,1,416))
             self.Q = np.round(model.predict(state_now)[0][0],10)
@@ -87,7 +81,7 @@ class GymSuperMario(object):
                 print('error - action_index failed')
                 action_index = np.argmax(self.Q)
                 
-            if not test and random() < self.epsi:
+            if random() < self.epsi:
                 action_index = randint(0,19)
             action = np.array(np.unravel_index(self.Valid_Inputs[action_index],(2,2,2,2,2,2)))
                        
@@ -97,44 +91,47 @@ class GymSuperMario(object):
                 score += reward
                 temp_reward += reward
                 
-            temp_reward = temp_reward if not done else -20
+            reward = temp_reward/(steps/10) if not done else -20
             
-            self.data.append((state_then,state_new,action_index,temp_reward,done))
+            self.data.append((state_then,state_new,action_index,reward,done))
             state_then = state_new
             
             self.dist = info['distance']
             if self.dist > self.max_dist:
                 self.max_dist = self.dist
+            self.epsi = (self.dist/self.max_dist)**(-1)
             
         print('Score:',score)
-        if not test:
-            #print("Training...")
-            data_indexes = np.random.choice(len(self.data),self.mb_size)
-            mb_data = [self.data[i] for i in data_indexes]
-            inputs = np.zeros((self.mb_size,) + (1,416))
-            targets = np.zeros((self.mb_size,) + (1,20))
+        return(score,steps)
+        
+        
+    def _train(self):
+        #print("Training...")
+        data_indexes = np.random.choice(len(self.data),self.mb_size)
+        mb_data = [self.data[i] for i in data_indexes]
+        inputs = np.zeros((self.mb_size,) + (1,416))
+        targets = np.zeros((self.mb_size,) + (1,20))
+        
+        for i in range(self.mb_size):
+            state_then,state_new,action,reward,done = mb_data[i]
+            state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208)))).reshape((1,1,416))
+            inputs[i,:,:] = state_now
+            targets[i,:,:] = np.round(model.predict(state_now)[0][0],10)
+            if not done:
+                for ii in range(len(self.rewards)-i):
+                    reward += self.gamma ** ii * self.rewards[i+ii]
+            targets[i,0,action] = reward
             
-            for i in range(self.mb_size):
-                state_then,state_new,action,reward,done = mb_data[i]
-                state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208)))).reshape((1,1,416))
-                inputs[i,:,:] = state_now
-                targets[i,:,:] = np.round(model.predict(state_now)[0][0],10)
-                if not done:
-                    for ii in range(len(self.rewards)-i):
-                        reward += self.gamma ** ii * self.rewards[i+ii]
-                targets[i,0,action] = reward
-                
-            model.fit(inputs,targets,batch_size=self.mb_size,epochs=5,shuffle=False)
-            self.epsi *= self.epsi_decay if self.epsi > self.epsi_min else 1
-            #print("Training Done")
+        model.fit(inputs,targets,batch_size=self.mb_size,epochs=5,shuffle=False)
+        #print("Training Done")
+        
+        
+    def evaluate(self,state_then):
+            
+        score, steps = self._loop(state_then)
+        
         return (score,steps)
         
-        
-    def evaluate(self,test):
-            
-        score, steps = self._loop(test)
-        
-        return (score/self.max_score,steps)
         
     def solve(self):
             
@@ -146,20 +143,24 @@ class GymSuperMario(object):
             
         return int(score > self.max_score)
         
+        
     def get_Q(self):
         return self.Q
 
 
 
-o = GymSuperMario(max_steps=10000,max_score=2000)
+o = GymSuperMario(max_steps=10000,max_score=3200)
 completed = False
+state_then = env.reset()
 while not completed:
-    score,step = o.evaluate(test=False)
+    score,step = o.evaluate(state_then)
     print('Practice - score: ',score,' Steps: ',step)
-    a = o.get_Q()
     if score >= 3200:
         completed = True
-    score,step = o.evaluate(test=True)
-    print('Test - score: ',score,' Steps: ',step)
+        o.epsi = 0
+    else:
+        o._train()
+score,step = o.evaluate(state_then)
+print('Test - score: ',score,' Steps: ',step)
     
     
