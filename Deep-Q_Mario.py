@@ -8,7 +8,7 @@ env = gym.make('meta-SuperMarioBros-Tiles-v0')
 from random import random, randint
 
 from keras.models import Sequential, load_model
-from keras.layers import Dense
+from keras.layers import Dense, LocallyConnected2D, Flatten, TimeDistributed
 from keras.optimizers import Adam
 from keras import backend as K
 
@@ -19,27 +19,13 @@ def _huber_loss(target, prediction):
     return K.mean(K.sqrt(1+K.square(error))-1, axis=-1)
     
 model = Sequential()
-model.add(Dense(512, activation='relu',input_shape=(1,416)))
+model.add(TimeDistributed(Dense(128), input_shape=(2,13,16)))
+model.add(Dense(128, activation='relu'))
+model.add(Flatten())
 model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(64, activation='relu'))
-model.add(Dense(20,  activation='relu'))
+model.add(Dense(20, activation='relu'))
 model.compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
          
 debug = []
@@ -64,7 +50,7 @@ class GymSuperMario(object):
     global debug
     def __init__(self, max_steps = 8000, max_score = 2000):
         self.mod_save = True
-        self.mod_load = True
+        self.mod_load = False
         self.max_steps = max_steps
         self.max_score = max_score
         self.actions = []
@@ -74,11 +60,11 @@ class GymSuperMario(object):
         self.max_dist = 40.0
         self.dist = 40.0
         self.Q = None
-        self.gamma = 0.95
-        self.mb_size = 1000
+        self.gamma = 0.3
+        self.mb_size = 200
         self.epsi = 1.0
         self.epsi_decay = 0.99
-        self.epsi_min = .001
+        self.epsi_min = .05
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
         
@@ -93,18 +79,18 @@ class GymSuperMario(object):
         while not done:
             reward = 0
             steps += 3
-            state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208))))
-            state_now = state_now.reshape((1,1,416))
-            self.Q = np.round(model.predict(state_now)[0][0],10)
-            plist = self.Q/np.sum(self.Q)
+            state_now = np.hstack((state_then.reshape((1,1,13,16)),state_new.reshape((1,1,13,16))))
+            #state_now = state_now.reshape((1,1,416))
+            self.Q = np.round(model.predict(state_now),10)[0]
             
+            plist = self.Q/np.sum(self.Q)
             try:
                 action_index = np.where(self.Q==np.random.choice(self.Q,p=plist))
                 action_index = action_index[0][0]
             except:
                 print('error - action_index failed')
                 action_index = np.argmax(self.Q)
-                
+            
             if random() < self.epsi:
                 action_index = randint(0,19)
             action = np.array(np.unravel_index(self.Valid_Inputs[action_index],(2,2,2,2,2,2)))
@@ -135,18 +121,18 @@ class GymSuperMario(object):
         #print("Training...")
         data_indexes = np.random.choice(len(self.data),self.mb_size)
         mb_data = [self.data[i] for i in data_indexes]
-        inputs = np.zeros((self.mb_size,) + (1,416))
-        targets = np.zeros((self.mb_size,) + (1,20))
+        inputs = np.zeros((self.mb_size,) + (2,13,16))
+        targets = np.zeros((self.mb_size,20))
         
         for i in range(self.mb_size):
             state_then,state_new,action,reward,done = mb_data[i]
-            state_now = np.vstack((state_then.reshape((1,1,208)),state_new.reshape((1,1,208)))).reshape((1,1,416))
-            inputs[i,:,:] = state_now
-            targets[i,:,:] = np.round(model.predict(state_now)[0][0],10)
+            state_now = np.hstack((state_then.reshape((1,1,13,16)),state_new.reshape((1,1,13,16))))
+            inputs[i] = state_now[0]
+            targets[i] = np.round(model.predict(state_now)[0],10)
             if not done:
                 for ii in range(len(self.rewards)-i):
                     reward += self.gamma ** ii * self.rewards[i+ii]
-            targets[i,0,action] = reward
+            targets[i,action] = reward
         
 
         model.fit(inputs,targets,batch_size=self.mb_size,epochs=1,shuffle=False)
@@ -190,6 +176,7 @@ while not completed:
     if score >= 500:
         completed = True
         o.epsi = 0.0
+        env.change_level()
     else:
         o._train()
         o.epsi *= o.epsi_decay
