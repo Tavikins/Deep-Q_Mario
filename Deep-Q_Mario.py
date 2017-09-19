@@ -18,6 +18,21 @@ def _huber_loss(target, prediction):
     error = prediction - target
     return K.mean(K.sqrt(1+K.square(error))-1, axis=-1)
     
+num_models = 5
+models = [0] * num_models
+for i in range(num_models):
+    models[i] = Sequential()
+    models[i].add(TimeDistributed(Dense(128), input_shape=(13,16)))
+    models[i].add(Dense(128, activation='relu'))
+    models[i].add(Flatten())
+    models[i].add(Dropout(.001))
+    models[i].add(Dense(64, activation='relu'))
+    models[i].add(Dense(64, activation='relu'))
+    models[i].add(Dense(64, activation='relu'))
+    models[i].add(Dense(20, activation='relu'))
+    models[i].compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
+
+'''
 model = Sequential()
 model.add(TimeDistributed(Dense(128), input_shape=(13,16)))
 model.add(Dense(128, activation='relu'))
@@ -27,31 +42,33 @@ model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
 model.add(Dense(64, activation='relu'))
 model.add(Dense(20, activation='relu'))
-model.compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
-         
+model.compile(loss=_huber_loss, optimizer=Adam(lr=0.001))  
+'''  
 debug = []
 def ui(i):
     return np.unravel_index(i,(2,2,2,2,2,2))
 def _save_model():
-    print('Saving Model')
-    model.save('./DQMario_model.h5')
+    print('Saving Models')
+    for i in range(num_models):
+        models[i].save('./DQMario_model'+str(i)+'.h5')
 
-def _load_model(model, f):
-    print('Loading Model')
-    m=None
-    try:
-        m = load_model('./DQMario_model.h5',custom_objects={'_huber_loss':_huber_loss})
-        del model
-    except:
-        print('Model not loaded, using default')
-        m = model
+def _load_model(models, f):
+    print('Loading Models')
+    m=[0]*num_models
+    for i in range(num_models):
+        try:
+            m[i] = load_model('./DQMario_model'+str(i)+'.h5',custom_objects={'_huber_loss':_huber_loss})
+            del models[i]
+        except:
+            print('Model not loaded, using default')
+            m[i] = models[i]
     return m
     
 class GymSuperMario(object):
     global debug
     def __init__(self, max_steps = 8000, max_score = 2000):
         self.mod_save = True
-        self.mod_load = True
+        self.mod_load = False
         self.max_steps = max_steps
         self.max_score = max_score
         self.actions = []
@@ -85,27 +102,42 @@ class GymSuperMario(object):
             steps += 3
             state_now = np.array([state_new],dtype='int')
             #state_now = state_now.reshape((1,1,416))
-            self.Q = np.round(model.predict(state_now),10)[0]
-            
-            plist = self.Q/np.sum(self.Q)
-            try:
-                action_index = np.where(self.Q==np.random.choice(self.Q,p=plist))
-                action_index = action_index
-                print(action_index)
-                action_index = np.where(self.Q[action_index]==np.random.choice(action_index)) if len(action_index) > 1 else action_index
-                action_index = np.asscalar(action_index[0]) if not np.isscalar(action_index[0]) else action_index
-            except:
-                print('error - action_index failed')
-                action_index = np.argmax(self.Q)
-            
-            if random() < self.epsi:
-                action_index = randint(0,19)
+            actions = [0] * num_models
+            vote_weights = [0] * num_models
+            for i in range(num_models):
+                Q = np.round(models[i].predict(state_now),10)[0]
+                plist = Q/np.sum(Q)
+                action_index = None
+                try:
+                    action_index = np.where(Q==np.random.choice(Q,p=plist))[0]
+                    #print(action_index)
+                    action_index = np.where(action_index==np.random.choice(action_index))[0] if len(action_index) > 1 else action_index
+                    action_index = np.asscalar(action_index) if not np.isscalar(action_index) else action_index
+                except:
+                    print('error - action_index failed')
+                    action_index = np.argmax(Q)
+                
+                if random() < self.epsi:
+                    action_index = randint(0,19)
+                actions[i] = action_index
+                vote_weights[i] = float(Q[action_index])
+                #print vote_weights
+            #print actions
+            #print vote_weights
+            plist = vote_weights/np.sum(vote_weights)
+            #print(np.sum(plist))
+            if np.sum(plist) == 1:
+                vote_index = np.where(vote_weights==np.random.choice(vote_weights, p=plist))[0]
+                vote_index = np.where(vote_index==np.random.choice(vote_index))[0] if len(vote_index) > 1 else vote_index
+                vote_index = np.asscalar(vote_index) if not np.isscalar(vote_index) else vote_index
+                action_index = actions[vote_index]
             action = np.array(np.unravel_index(self.Valid_Inputs[action_index],(2,2,2,2,2,2)))
+
                        
             
             for i in range(3):
                 state_new, temp_reward, done, info = env.step(action)
-                score += temp_reward
+                score = info['total_reward']
                 reward += temp_reward
                 if done:
                     #self._train()
@@ -119,31 +151,31 @@ class GymSuperMario(object):
             self.epsi = self.epsi + 0.01 if stuck else self.epsi
             #self.epsi = (self.dist/self.max_dist)
             #print(self.epsi)
-            
-        print('Score:',score)
+        
         return(score,steps)
         
         
     def _train(self):
         #print("Training...")
-        data_len = len(self.data)
-        data_indexes = np.random.choice(data_len,self.mb_size)
-        mb_data = [self.data[i] for i in range(data_len)]
-        inputs = np.zeros((data_len,) + (13,16))
-        targets = np.zeros((data_len,20))
+        for im in range(num_models):
+            data_len = len(self.data)
+            data_indexes = np.random.choice(data_len,self.mb_size)
+            mb_data = [self.data[i] for i in range(data_len)]
+            inputs = np.zeros((data_len,) + (13,16))
+            targets = np.zeros((data_len,20))
+            
+            for i in range(data_len):
+                state_then,state_new,action,reward,done = mb_data[i]
+                state_now = np.array([state_new],dtype='int')
+                inputs[i,:,:] = state_now
+                targets[i,:] = np.round(models[im].predict(state_now),10)[0]
+                if not done:
+                    for ii in range(len(self.rewards)-i):
+                        reward += self.gamma ** ii * self.rewards[i+ii]
+                targets[i,action] = reward
+            
         
-        for i in range(data_len):
-            state_then,state_new,action,reward,done = mb_data[i]
-            state_now = np.array([state_new],dtype='int')
-            inputs[i,:,:] = state_now
-            targets[i,:] = np.round(model.predict(state_now),10)[0]
-            if not done:
-                for ii in range(len(self.rewards)-i):
-                    reward += self.gamma ** ii * self.rewards[i+ii]
-            targets[i,action] = reward
-        
-
-        model.fit(inputs,targets,batch_size=self.mb_size,epochs=1,shuffle=False)
+            models[im].fit(inputs,targets,batch_size=self.mb_size,epochs=1,shuffle=False)
         #print("Training Done")
         
         
@@ -173,7 +205,7 @@ class GymSuperMario(object):
 
 o = GymSuperMario(max_steps=10000,max_score=3200)
 completed = False
-model = _load_model(model,_huber_loss) if o.mod_load else model
+models[:] = _load_model(models,_huber_loss) if o.mod_load else models[:]
 o.epsi = o.epsi_min if o.mod_load else o.epsi
 state_then = env.reset()
 while not completed:
@@ -183,7 +215,8 @@ while not completed:
         _save_model()
     if score >= 500:
         print('Winning!')
-        model.save('./DQMario_model_winner.h5')
+        for i in range(num_models):
+            models[i].save('./DQMario_model'+str(i)+'_winner.h5')
         #env.change_level()
     else:
         o._train()
