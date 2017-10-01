@@ -8,10 +8,10 @@ env = gym.make('meta-SuperMarioBros-Tiles-v0')
 from random import random, randint
 from keras import models as Models
 from keras.models import Sequential, load_model
-from keras.layers import Dense, LocallyConnected2D, Flatten, TimeDistributed,Dropout, Activation
-from keras.optimizers import Adam
-from keras.layers.advanced_activations import LeakyReLU as leakyrelu
+from keras.layers import Dense, LocallyConnected2D, Flatten, TimeDistributed,Dropout
+from keras.optimizers import Nadam
 from keras import backend as K
+from keras.constraints import min_max_norm
 
 
 def _huber_loss(target, prediction):
@@ -19,25 +19,17 @@ def _huber_loss(target, prediction):
     error = prediction - target
     return K.mean(K.sqrt(1+K.square(error))-1, axis=-1)
     
-num_models = 5
+num_models = 2
 models = [0] * num_models
 for i in range(num_models):
     models[i] = Sequential()
-    models[i].add(TimeDistributed(Dense(256), input_shape=(13,16)))
-    models[i].add(TimeDistributed(Dense(512)))
-    models[i].add(leakyrelu())
-    models[i].add(Dropout(.05))
-    models[i].add((Dense(64)))
-    models[i].add(leakyrelu())
-    models[i].add(Dropout(.05))
-    models[i].add((Dense(64)))
-    models[i].add(leakyrelu())
-    models[i].add(Dropout(.05))
-    models[i].add((Dense(64)))
-    models[i].add(leakyrelu())
-    models[i].add(Flatten())
-    models[i].add((Dense(20,activation='relu')))
-    models[i].compile(loss=_huber_loss, optimizer=Adam(lr=0.001))
+    models[i].add(Dense(1024, activation='relu',input_dim= 209))
+    models[i].add(Dense(512, activation='relu'))
+    
+models[0].add(Dense(20, activation='linear'))
+models[0].compile(loss='mse', optimizer=Nadam(lr=0.0001))
+models[1].add(Dense(208, activation='linear'))
+models[1].compile(loss='mse',optimizer=Nadam(lr= 0.0001))
 
 '''
 model = Sequential()
@@ -85,10 +77,10 @@ class GymSuperMario(object):
         self.max_dist = 40.0
         self.dist = 40.0
         self.Q = None
-        self.gamma = 0.3
+        self.gamma = 0.8
         self.mb_size = 200
-        self.epsi = 0.3
-        self.epsi_decay = 0.7
+        self.epsi = 0.9
+        self.epsi_decay = 0.95
         self.epsi_min = 0.05
         self.Valid_Inputs = [i for i in range(64) if (ui(i)[0] + ui(i)[1] + ui(i)[2] + ui(i)[3]) <= 1]
 
@@ -100,47 +92,54 @@ class GymSuperMario(object):
         reward = 0
         score = 0
         self.data = []
+        state_then = state_then.flatten()
         state_now = np.array([],dtype='int')
         state_new = state_then
         self.db = state_new
         stuck = False
-        self.rewards = []
+        action_index = 0
+        future_predictions = 1
         while not done:
             reward = 0
             steps += 3
-            state_now = np.array([state_new],dtype='int')
-            #state_now = state_now.reshape((1,1,416))
-            actions = [0] * num_models
-            vote_weights = [0] * num_models
-            for i in range(num_models):
-                Q = np.round(models[i].predict_on_batch(state_now),10)[0]
+            future_reward = 0
+            state_now = np.array([state_new],dtype='int')[0]
+            state_next = np.round(models[1].predict(np.append(state_now.flatten(),action_index).reshape((1,209)))[0],0)
+            for i in range(future_predictions):
+                Q = models[0].predict(np.append(state_next.flatten(),action_index).reshape((1,209)))[0]
+                #print 'future Q = ', Q
                 plist = Q/np.sum(Q)
                 action_index = None
                 try:
                     action_index = np.where(Q==np.random.choice(Q,p=plist))[0]
-                    #print(action_index)
+                    print(action_index)
                     action_index = np.where(action_index==np.random.choice(action_index))[0] if len(action_index) > 1 else action_index
-                    action_index = np.asscalar(action_index) if not np.isscalar(action_index) else action_index
+                    #action_index = np.asscalar(action_index) if not np.isscalar(action_index) else action_index
                 except:
                     print('error - action_index failed')
                     action_index = np.argmax(Q)
                 
                 if random() < self.epsi:
                     action_index = randint(0,19)
-                actions[i] = action_index
-                vote_weights[i] = float(Q[action_index])
+                future_reward += Q[action_index]
+                state_next = np.round(models[1].predict(np.append(state_next.flatten(),action_index).reshape((1,209)))[0],0)
+                #actions[i] = action_index
+                #vote_weights[i] = float(Q[action_index])
                 #print vote_weights
+            #print 'action_index = ', action_index
+            #print 'future_reward = ', future_reward
+            #print 'state_next = ', state_next
             #print actions
             #print vote_weights
-            plist = vote_weights/np.sum(vote_weights)
+            #plist = vote_weights/np.sum(vote_weights)
             #print(np.sum(plist))
-            if np.sum(plist) == 1:
-                vote_index = np.where(vote_weights==np.random.choice(vote_weights, p=plist))[0]
-                vote_index = np.where(vote_index==np.random.choice(vote_index))[0] if len(vote_index) > 1 else vote_index
-                vote_index = np.asscalar(vote_index) if not np.isscalar(vote_index) else vote_index
-                action_index = actions[vote_index]
+            #if np.sum(plist) == 1:
+                #vote_index = np.where(vote_weights==np.random.choice(vote_weights, p=plist))[0]
+                #vote_index = np.where(vote_index==np.random.choice(vote_index))[0] if len(vote_index) > 1 else vote_index
+                #vote_index = np.asscalar(vote_index) if not np.isscalar(vote_index) else vote_index
+                #action_index = actions[vote_index]
             action = np.array(np.unravel_index(self.Valid_Inputs[action_index],(2,2,2,2,2,2)))
-
+            #print 'action = ', action
                        
             
             for i in range(5):
@@ -149,11 +148,12 @@ class GymSuperMario(object):
                 reward += temp_reward
                 if done:
                     #self._train()
-                    reward = -10
                     break
-            
-            self.data.append((state_then,state_new,action_index,reward,done))
-            self.rewards.append(reward)
+            reward *= 10
+            #print 'reward = ', reward
+            print 'error = ', abs(Q[action_index] - reward)
+            state_new = state_new.reshape((1,208))
+            self.data.append((state_then,state_new,action_index,reward,future_reward,done))
             state_then = state_new
             
             self.dist = float(info['distance']) if info['distance'] > 0 else self.dist
@@ -161,34 +161,47 @@ class GymSuperMario(object):
             self.epsi = self.epsi + 0.01 if stuck else self.epsi
             #self.epsi = (self.dist/self.max_dist)
             #print(self.epsi)
+            print 'epsi = ', self.epsi
         
         return(score,steps)
         
         
     def _train(self):
         #print("Training...")
-        for i in range(len(self.rewards)):
-            for ii in range(len(self.rewards)-i):
-                self.rewards[i] += self.gamma ** ii * self.rewards[i+ii]
-        for im in range(num_models):
+        if True:
             data_len = len(self.data)
-            data_indexes = np.random.choice(data_len,self.mb_size)
+            #data_indexes = np.random.choice(data_len,self.mb_size)
             mb_data = [self.data[i] for i in range(data_len)]
-            inputs = np.zeros((data_len,) + (13,16))
-            targets = np.zeros((data_len,20))
-            
+            #inputs = np.zeros((data_len,) + (13,16))
+            #targets = np.zeros((data_len,20))
+            targets = np.zeros((data_len,1,20))
+            state_targets = np.zeros((data_len,1,208))
+            state_inputs = np.zeros((data_len,1,209))
             for i in range(data_len):
-                state_then,state_new,action,reward,done = mb_data[i]
-                state_now = np.array([state_new],dtype='int')
-                inputs[i,:,:] = state_now
-                targets[i,:] = np.round(models[im].predict(state_now),10)[0]
-                if not done:
-                    for ii in range(data_len-i):
-                        reward += self.gamma ** ii * self.data[i+ii][3]
-                        targets[i] += self.gamma ** ii * targets[i+ii]
-                targets[i,action] = reward
-            
-            models[im].fit(inputs,targets,epochs=1,verbose=0)
+                state_then,state_new,action,reward,future_reward,done = mb_data[i]
+                #state_now = np.array([state_new],dtype='int')
+                state_inputs[i,:,:] = np.append(state_then,action).reshape((1,1,209))
+                state_targets[i,:,:] = state_new.reshape((1,1,208))
+                #Q = models[0].predict(np.expand_dims(np.append(state_then,action).reshape((1,209)),axis=0))[0]
+                #print 'train Q = ', Q
+                #targets[0,:] = Q
+                #print 'targets = ', targets
+                #if data_len - i > 6:
+                    #print 'i = ', i
+                    #print 'data_len =', data_len
+                    #if not True in np.array(mb_data)[i:min(i+5,data_len),5]:
+                for ii in range(data_len-i):
+                    reward += self.gamma ** ii * mb_data[i+ii][3]
+                #else:
+                    #reward = -10
+                if done:
+                    reward -= 10
+                targets[i,0,action] = reward * 10
+                #print 'state_inputs = ', state_inputs
+                #print 'targets = ', targets
+                #print 'state_targets = ', state_targets
+                models[1].fit(state_inputs[i],state_targets[i],epochs=1,verbose=0)
+                models[0].fit(state_inputs[i],targets[i],epochs=1,verbose=0)
         #print("Training Done")
         
         
